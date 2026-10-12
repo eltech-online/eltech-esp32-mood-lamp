@@ -31,7 +31,7 @@ The code is written to be read: every section is commented in plain language, an
 
 **The LED ring.** Each WS2812B LED has a tiny chip inside. The board sends a stream of colour values down one data wire; the first LED keeps the first value and passes the rest on, the second LED does the same, and so on round the ring. That is why three wires are enough for any number of LEDs.
 
-**The knob.** A rotary encoder has no end stops and no "position". Inside are two switches, CLK and DT, that open and close one after the other as it turns. Which one changes first tells you the direction. A click is over in a few milliseconds, so the sketch uses an *interrupt*: the board drops what it is doing the instant CLK changes.
+**The knob.** A rotary encoder has no end stops and no "position". Inside are two switches, CLK and DT, that open and close one after the other as it turns. Which one changes first tells you the direction. A click is over in a few milliseconds, so the sketch uses an *interrupt*: the board drops what it is doing the instant either wire changes. Switches *bounce* (chatter for a millisecond), so the sketch follows every move of both wires and only counts a full click.
 
 **The remote.** A remote flashes an invisible infrared LED. The receiver turns the flashes into a wire that goes LOW while the remote is flashing. Most remotes use the **NEC** code, where everything is in the timing between one fall of the wire and the next: 13.5 ms starts a button press, 1.125 ms is a 0 bit, 2.25 ms is a 1 bit. 32 bits make the button's code. The sketch decodes this itself, in about 30 lines, with no library.
 
@@ -68,9 +68,9 @@ There are **two sketches** in this repo:
 | Component | Notes |
 |---|---|
 | ESP32-C3 SuperMini |  |
-| WS2812B LED ring, 8 LEDs | Pads marked `5V` (or `VCC`), `GND` and `DI`. Use `DI` (data in), not `DO`. |
+| WS2812B LED ring, 8 LEDs | 4 pins: `DI`, `5V`, `GND`, `DO`. Use `DI` (data in). `DO` (data out) stays empty. |
 | KY-040 rotary encoder module | 5 pins: `CLK`, `DT`, `SW`, `+`, `GND` |
-| KY-022 infrared receiver module | 3 pins: `S`, `+` (middle) and `-` |
+| KY-022 infrared receiver module | 3 pins: `G` (ground), `R` (power, middle) and `Y` (signal). Some boards print `-`, `+` and `S` instead |
 | Breadboard + jumper wires | 11 wires |
 | Any infrared remote | Not in the kit: use a TV, media-player or LED-strip remote you already have |
 
@@ -79,13 +79,13 @@ There are **two sketches** in this repo:
 | Wire | ESP32-C3 pin | Connects to |
 |---|---|---|
 | 5V | 5V | WS2812B LED ring `5V` |
-| 3.3V | 3V3 | KY-040 rotary encoder `+`, KY-022 IR receiver `+` |
-| GND | GND | WS2812B LED ring `GND`, KY-040 rotary encoder `GND`, KY-022 IR receiver `-` |
+| 3.3V | 3V3 | KY-040 rotary encoder `+`, KY-022 IR receiver `R` |
+| GND | GND | WS2812B LED ring `GND`, KY-040 rotary encoder `GND`, KY-022 IR receiver `G` |
 | Ring data | GPIO 4 | WS2812B LED ring `DI` |
 | Knob CLK | GPIO 5 | KY-040 rotary encoder `CLK` |
 | Knob DT | GPIO 6 | KY-040 rotary encoder `DT` |
 | Knob button | GPIO 7 | KY-040 rotary encoder `SW` |
-| IR signal | GPIO 10 | KY-022 IR receiver `S` |
+| IR signal | GPIO 10 | KY-022 IR receiver `Y` |
 
 ![Wiring diagram: Mood Lamp](wiring_diagram.png)
 
