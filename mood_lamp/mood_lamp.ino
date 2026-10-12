@@ -132,6 +132,24 @@ void loadState() {
 // LED ring
 // ---------------------------------------------------------------------------
 
+// Dims a colour to the lamp's brightness. A colour is three numbers, 0-255:
+// how much red, green and blue. Dimming multiplies all three by the same
+// fraction, but an LED can't show "half a step": at the lowest brightness a
+// small number would round down to 0 and drop out, so purple (a lot of red,
+// less blue) would turn plain red. To keep the colour, any part that is a real
+// share of it (at least an eighth of the strongest part) stays lit at 1.
+uint32_t dimmed(uint32_t colour) {
+  int level = map(brightPct, 0, 100, 0, MAX_BRIGHTNESS);
+  int part[3] = { (int)((colour >> 16) & 255), (int)((colour >> 8) & 255), (int)(colour & 255) };
+  int strongest = max(part[0], max(part[1], part[2]));
+  for (int i = 0; i < 3; i++) {
+    int v = (part[i] * level + 127) / 255;            // + 127 rounds to nearest
+    if (v == 0 && part[i] > 0 && part[i] * 8 >= strongest) v = 1;
+    part[i] = v;
+  }
+  return ring.Color(part[0], part[1], part[2]);
+}
+
 // Works out the colour of every LED for this moment and sends it to the ring.
 // Called about 50 times a second from loop(), which is what makes the moving
 // effects look smooth.
@@ -141,19 +159,18 @@ void drawRing() {
     ring.show();
     return;
   }
-  ring.setBrightness(map(brightPct, 0, 100, 0, MAX_BRIGHTNESS));
   unsigned long now = millis();
 
   if (effect == 0) {
     // Solid: every LED the chosen colour.
-    ring.fill(ring.gamma32(ring.ColorHSV(hue, saturation, 255)));
+    ring.fill(dimmed(ring.gamma32(ring.ColorHSV(hue, saturation, 255))));
 
   } else if (effect == 1) {
     // Rainbow: each LED a step further round the colour wheel, and the whole
     // wheel slowly turns. now * 10 goes once round (65536) in about 6.5 s.
     for (int i = 0; i < NUM_LEDS; i++) {
       uint16_t h = (uint16_t)(now * 10) + i * (65536 / NUM_LEDS);
-      ring.setPixelColor(i, ring.gamma32(ring.ColorHSV(h, 255, 255)));
+      ring.setPixelColor(i, dimmed(ring.gamma32(ring.ColorHSV(h, 255, 255))));
     }
 
   } else if (effect == 2) {
@@ -161,7 +178,7 @@ void drawRing() {
     // sin() gives a smooth wave from -1 to +1; we move it to 0.1 - 1.0.
     float wave = (sin(now / 4000.0 * 2 * PI) + 1.0) / 2.0;
     uint8_t level = 25 + wave * 230;
-    ring.fill(ring.gamma32(ring.ColorHSV(hue, saturation, level)));
+    ring.fill(dimmed(ring.gamma32(ring.ColorHSV(hue, saturation, level))));
 
   } else {
     // Candle: warm orange, each LED flickering by a random amount. Only
@@ -171,7 +188,7 @@ void drawRing() {
     lastFlicker = now;
     for (int i = 0; i < NUM_LEDS; i++) {
       uint8_t level = random(90, 256);
-      ring.setPixelColor(i, ring.gamma32(ring.ColorHSV(4000 + random(0, 1500), 255, level)));
+      ring.setPixelColor(i, dimmed(ring.gamma32(ring.ColorHSV(4000 + random(0, 1500), 255, level))));
     }
   }
   ring.show();   // nothing changes on the LEDs until this line
@@ -526,6 +543,7 @@ void setup() {
     ring.show();
     delay(500);
   }
+  ring.setBrightness(255);   // from here on dimmed() sets the brightness itself
 
   wifiOK = startAccessPoint();
 
