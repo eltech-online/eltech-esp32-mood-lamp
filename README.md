@@ -1,8 +1,6 @@
 # ElTech-Online ESP32-C3 Mood Lamp
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/eltech)
-
-> **Status: BETA, not tested.** The code compiles for the ESP32-C3, but this kit has not been built and tested on real hardware yet. Pin choices, default values and the wiring may still change. Use it to read and learn from; expect to do some fault-finding if you build it now.
+[![Compile sketches](https://github.com/eltech-online/eltech-esp32-mood-lamp/actions/workflows/compile.yml/badge.svg)](https://github.com/eltech-online/eltech-esp32-mood-lamp/actions/workflows/compile.yml) [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/eltech)
 
 A beginner-friendly **learning kit**: build a colour-changing lamp from an **ESP32-C3 SuperMini**, an **8-LED WS2812B ring**, a **KY-040 rotary encoder** (a knob) and a **KY-022 infrared receiver**. Control it three ways: turn the knob, point any TV remote at it, or open the web page the board hosts on your phone. No prior electronics or coding experience needed, and no soldering: everything plugs into a breadboard.
 
@@ -122,9 +120,7 @@ Good to know:
 5. **Install libraries** via `Sketch > Include Library > Manage Libraries`:
    - Adafruit NeoPixel
 
-   If Library Manager asks to install dependencies (Adafruit BusIO, Adafruit Unified Sensor), click **Install all**.
-
-   **Compiled with** these versions (compile-tested only; hardware confirmation pending):
+   **Tested with** these versions — if something doesn't compile or work correctly, installing these exact versions is the first thing to try (both Boards Manager and Library Manager let you pick a version from a dropdown):
 
    | Package | Version |
    |---|---|
@@ -173,10 +169,11 @@ Open `mood_lamp/mood_lamp.ino` alongside this section. The file starts with a sh
 1. **Settings at the top.** Pin numbers and `MAX_BRIGHTNESS` are named values you can change in one place.
 2. **Lamp state.** Five variables (`lampOn`, `hue`, `saturation`, `brightPct`, `effect`) describe everything the lamp shows.
 3. **Drawing the ring.** `drawRing()` runs 200 times a second and works out each LED's colour for that moment. Nothing changes on the LEDs until `ring.show()`.
-4. **The knob.** `knobTurned()` is the interrupt: it only counts. `handleKnob()` in `loop()` uses the count and tells a short press from a long one.
-5. **The remote.** `irFell()` is the interrupt that measures the gaps and builds the 32-bit code. `handleRemote()` compares it with the learned buttons.
-6. **The web server.** `/state` sends the lamp's state as JSON, `/set` changes it, `/learn` starts remote learning. The page (`page_template.h`) asks for `/state` once a second.
-7. **Saving.** Settings are written to flash 3 seconds after the last change, not on every click, because flash wears a little with each write.
+4. **Dimming.** `ledColour()` dims a colour to the lamp's brightness. An LED can't show half a step, so at low brightness a mixed colour like orange would turn plain red. The function shares the leftover out over the fast redraws, and the eye sees the right colour. The comment above it works through an example.
+5. **The knob.** `knobTurned()` is the interrupt: it only counts. `handleKnob()` in `loop()` uses the count and tells a short press from a long one.
+6. **The remote.** `irFell()` is the interrupt that measures the gaps and builds the 32-bit code. `handleRemote()` compares it with the learned buttons.
+7. **The web server.** `/state` sends the lamp's state as JSON, `/set` changes it, `/learn` starts remote learning. The page (`page_template.h`) asks for `/state` once a second.
+8. **Saving.** Settings are written to flash 3 seconds after the last change, not on every click, because flash wears a little with each write.
 
 ## Try this next
 
@@ -188,15 +185,9 @@ Small changes to try yourself, roughly easiest first. Change one thing, upload, 
 4. **Add a sleep timer.** Note `millis()` when the lamp is switched on and switch it off 30 minutes later.
 5. **Add a sixth remote action**, for example *white light*: add it to `ACTION_NAMES`, raise `ACTION_COUNT`, and handle it in `doAction()`.
 
-## Beta notes
+## Found a problem?
 
-This repository is published early. Still to be confirmed on real hardware:
-
-- Ring data at 3.3 V logic with the ring on 5 V (usually fine; if the colours glitch, power the ring from 3V3 instead)
-- LED ring, IR interrupts and WiFi running together on the ESP32-C3
-- The power-on check for the knob assumes the module has pull-up resistors on CLK and DT
-
-Found a problem? Please open an issue on this repository.
+Please open an issue on this repository.
 
 ## License
 

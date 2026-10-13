@@ -1,8 +1,6 @@
 // ElTech-Online ESP32 Mood Lamp — an 8-LED colour ring you control three ways:
 // with a knob, with any TV remote, and from a web page on your phone.
 //
-// BETA: this sketch compiles but has not been fully tested on hardware yet.
-//
 // Three parts, three techniques:
 //   - WS2812B LED ring    -> ADDRESSABLE LEDs: one data wire sets every LED's colour
 //   - KY-040 rotary knob  -> a ROTARY ENCODER, read with an interrupt
@@ -67,6 +65,10 @@ const bool  AP_OPEN_NETWORK = false;  // true = no password at all
 // would draw about 0.5 A, more than some USB ports like to give, so the sketch
 // never goes above this level. 120 is already bright in a room.
 #define MAX_BRIGHTNESS 120
+// The lowest brightness the knob, remote and web page can set, in percent.
+// Below this, dim mixed colours start to look wrong. (The slider on the web
+// page has the same number: min="3" in page_template.h.)
+#define MIN_BRIGHT_PCT 3
 
 // Turning the knob the "wrong" way round? Change false to true.
 const bool ENC_REVERSE = false;
@@ -87,7 +89,7 @@ WebServer server(80);
 bool lampOn = true;
 uint16_t hue = 5000;      // colour as a position on the colour wheel, 0-65535
 uint8_t  saturation = 255; // 255 = pure colour, 0 = white
-int brightPct = 40;       // brightness, 0-100 %
+int brightPct = 40;       // brightness in percent, MIN_BRIGHT_PCT to 100
 int effect = 0;           // which entry of EFFECT_NAMES is running
 
 const char* EFFECT_NAMES[] = { "Solid", "Rainbow", "Breathe", "Candle" };
@@ -124,7 +126,9 @@ void loadState() {
   brightPct  = prefs.getInt("bright", 40);
   effect     = prefs.getInt("effect", 0);
   prefs.end();
-  brightPct = constrain(brightPct, 0, 100);
+  // Never trust a saved value blindly: constrain() pulls anything outside the
+  // allowed range back inside it.
+  brightPct = constrain(brightPct, MIN_BRIGHT_PCT, 100);
   effect = constrain(effect, 0, EFFECT_COUNT - 1);
 }
 
@@ -140,19 +144,26 @@ void loadState() {
 // step". At the lowest brightness orange should be red 3, green 0.4. Rounded,
 // that is either green 0 (plain red) or green 1 (yellow): the wrong colour
 // both ways. So the lamp shares the leftover out over time: the ring is
-// redrawn 200 times a second, and with half a step left over, every LED shows
-// green 1 on two redraws out of four and green 0 on the others. That is far
-// too fast to see, so the eye gets the right colour, and all the LEDs always
-// match each other. Higher up, one step more or less can't be seen.
+// redrawn 200 times a second, and the leftover is counted in quarters of a
+// step. With one quarter left over, every LED shows green 1 on one redraw out
+// of four and green 0 on the other three; with two quarters, on two out of
+// four. That is far too fast to see, so the eye gets the colour in between,
+// and all the LEDs always match each other. Higher up, one step more or less
+// can't be seen.
 const int SHARE[4] = { 0, 2, 1, 3 };   // which redraws join in first; this order flickers least
 int redraw = 0;                        // counts redraws: 0, 1, 2, 3, 0, 1, ...
 
 uint32_t ledColour(uint32_t colour, uint8_t amount) {
+  // map() rescales a number from one range to another: 0-100 % becomes
+  // 0-MAX_BRIGHTNESS.
   long level = map(brightPct, 0, 100, 0, MAX_BRIGHTNESS);
+  // The colour arrives as ONE number with red, green and blue packed side by
+  // side, 8 bits each. ">> 16" slides the red part down to the bottom and
+  // "& 255" keeps only those 8 bits; the same with 8 for green, 0 for blue.
   int part[3] = { (int)((colour >> 16) & 255), (int)((colour >> 8) & 255), (int)(colour & 255) };
   for (int i = 0; i < 3; i++) {
     long quarters = part[i] * level * amount * 4 / (255L * 255L);   // the exact level, in quarters of a step
-    part[i] = (quarters + SHARE[redraw]) / 4;
+    part[i] = (quarters + SHARE[redraw]) / 4;   // whole steps; a leftover quarter rounds up on some redraws
   }
   return ring.Color(part[0], part[1], part[2]);
 }
@@ -167,10 +178,12 @@ void drawRing() {
     return;
   }
   unsigned long now = millis();
-  redraw = (redraw + 1) % 4;
+  redraw = (redraw + 1) % 4;   // % 4 makes the count wrap round: 0, 1, 2, 3, 0, ...
 
   if (effect == 0) {
-    // Solid: every LED the chosen colour.
+    // Solid: every LED the chosen colour. ColorHSV() turns a position on the
+    // colour wheel into red, green and blue; gamma32() then corrects them,
+    // because LEDs and eyes disagree about what "half as bright" means.
     uint32_t colour = ring.gamma32(ring.ColorHSV(hue, saturation, 255));
     ring.fill(ledColour(colour, 255));
 
@@ -184,10 +197,11 @@ void drawRing() {
 
   } else if (effect == 2) {
     // Breathe: the chosen colour fades up and down like slow breathing.
-    // sin() gives a smooth wave from -1 to +1; we move it to 0.1 - 1.0.
+    // sin() gives a smooth wave from -1 to +1, once every 4 seconds; adding 1
+    // and halving moves it to 0 - 1.
     float wave = (sin(now / 4000.0 * 2 * PI) + 1.0) / 2.0;
-    // gamma8 bends the wave so the fade looks even to the eye.
-    uint8_t level = 25 + wave * 230;
+    uint8_t level = 25 + wave * 230;   // 25 to 255: it never fades right out
+    // gamma8() bends the wave so the fade looks even to the eye.
     uint32_t colour = ring.gamma32(ring.ColorHSV(hue, saturation, 255));
     ring.fill(ledColour(colour, ring.gamma8(level)));
 
@@ -195,12 +209,13 @@ void drawRing() {
     // Candle: the chosen colour (orange looks most like a flame), each LED
     // flickering by a random amount. Only changed every 80 ms, or it would
     // look like noise instead of a flame.
+    // ("static" makes a variable keep its value between one call and the next.)
     static unsigned long lastFlicker = 0;
     if (now - lastFlicker < 80) return;
     lastFlicker = now;
     uint32_t colour = ring.gamma32(ring.ColorHSV(hue, saturation, 255));
     for (int i = 0; i < NUM_LEDS; i++) {
-      uint8_t level = random(90, 256);
+      uint8_t level = random(90, 256);   // a random number from 90 to 255
       ring.setPixelColor(i, ledColour(colour, ring.gamma8(level)));
     }
   }
@@ -214,12 +229,12 @@ void drawRing() {
 void togglePower()        { lampOn = !lampOn; stateChanged(); }
 void nextEffect()         { effect = (effect + 1) % EFFECT_COUNT; lampOn = true; stateChanged(); }
 void changeBrightness(int steps) {
-  brightPct = constrain(brightPct + steps, 3, 100);   // never fully dark: use on/off for that
+  brightPct = constrain(brightPct + steps, MIN_BRIGHT_PCT, 100);   // never fully dark: use on/off for that
   stateChanged();
 }
 void changeHue(int steps) {
-  hue += steps * 2048;      // 32 steps go once round the colour wheel
-  saturation = 255;
+  hue += steps * 2048;      // 32 steps go once round the colour wheel (past 65535 it wraps to 0 by itself)
+  saturation = 255;         // back to a pure colour
   stateChanged();
 }
 
@@ -247,6 +262,8 @@ void changeHue(int steps) {
 // whatever it is doing, runs knobTurned(), and carries on. An interrupt
 // function must be tiny and fast, so it only counts; loop() does the real work
 // later. "volatile" tells the compiler the value can change at any moment.
+// IRAM_ATTR keeps the function in fast memory (RAM), which the ESP32 needs for
+// every interrupt function.
 volatile int knobSteps = 0;
 
 // What each move is worth. The row is picked by the old and new readings of the
@@ -258,6 +275,7 @@ void IRAM_ATTR knobTurned() {
   static uint8_t last = 3;                  // both wires HIGH = knob at rest
   static int8_t moves = 0;                  // moves since the last rest
   const int8_t need = ENC_TWO_MOVE_CLICKS ? 2 : 3;
+  // Both wires as one number, 0-3: CLK is worth 2 ("<< 1"), DT is worth 1.
   uint8_t now = (digitalRead(ENC_CLK) << 1) | digitalRead(ENC_DT);
   moves += KNOB_MOVES[(last << 2) | now];
   last = now;
@@ -347,8 +365,8 @@ void IRAM_ATTR irFell() {
     irBitCount = -1;
   } else if (irBitCount >= 0) {
     if (gap > 1900 && gap < 2600) {
-      irBits |= (1UL << irBitCount);         // a 1 bit
-    } else if (gap < 900 || gap > 1400) {
+      irBits |= (1UL << irBitCount);         // a 1 bit: switch on bit number irBitCount
+    } else if (gap < 900 || gap > 1400) {    // (between 900 and 1400 it is a 0 bit: nothing to switch on)
       irBitCount = -1;                       // neither 0 nor 1: give up on this code
       return;
     }
@@ -361,7 +379,8 @@ void IRAM_ATTR irFell() {
   }
 }
 
-// What a remote button can be taught to do.
+// What a remote button can be taught to do. The learned codes are saved in
+// flash under the names "ir0" to "ir4", one per action.
 const char* ACTION_NAMES[] = { "Power", "Next effect", "Brighter", "Dimmer", "Next colour" };
 const int ACTION_COUNT = 5;
 uint32_t learnedCodes[ACTION_COUNT];   // 0 = nothing learned for this action yet
@@ -481,7 +500,10 @@ void handleState() {
   server.send(200, "application/json", json);
 }
 
-// Turns a "#rrggbb" colour from the page into hue and saturation.
+// Turns a "#rrggbb" colour from the page into hue and saturation. The
+// strongest of red, green and blue says which third of the colour wheel the
+// colour is in; the other two say how far along. Saturation is how far apart
+// the strongest and the weakest are (all three equal = white).
 void setColourFromHex(String hex) {
   if (hex.startsWith("#")) hex = hex.substring(1);
   long rgb = strtol(hex.c_str(), NULL, 16);
@@ -498,10 +520,11 @@ void setColourFromHex(String hex) {
 }
 
 // "/set" -> the page changes something. It sends only what changed, e.g.
-// /set?bright=60 or /set?color=%23ff8800.
+// /set?bright=60 or /set?color=%23ff8800 (%23 is how a # is written in a web
+// address).
 void handleSet() {
   if (server.hasArg("on"))     lampOn = server.arg("on") == "1";
-  if (server.hasArg("bright")) brightPct = constrain(server.arg("bright").toInt(), 3, 100);
+  if (server.hasArg("bright")) brightPct = constrain(server.arg("bright").toInt(), MIN_BRIGHT_PCT, 100);
   if (server.hasArg("effect")) effect = constrain(server.arg("effect").toInt(), 0, EFFECT_COUNT - 1);
   if (server.hasArg("color"))  { setColourFromHex(server.arg("color")); effect = 0; }
   stateChanged();
@@ -562,7 +585,7 @@ void setup() {
 
   Serial.println("========================================");
   Serial.println("           ElTech-Online");
-  Serial.println("      ESP32 Mood Lamp (BETA)");
+  Serial.println("         ESP32 Mood Lamp");
   Serial.println("========================================");
   Serial.println("--- Self-test ---");
   Serial.println("LED ring:      shown red, green, blue (check by eye)");

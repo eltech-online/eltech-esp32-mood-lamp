@@ -5,6 +5,9 @@
 // so the page follows the knob and the remote. Moving a control sends a POST to
 // /set; the Learn buttons send a POST to /learn. The colours and layout come
 // from /style.css (see eltech_wifi.h).
+//
+// The brightness slider's min="3" is the same number as MIN_BRIGHT_PCT in the
+// main sketch: change both together.
 const char PAGE_TEMPLATE[] PROGMEM = R"HTML(
 <!DOCTYPE html>
 <html>

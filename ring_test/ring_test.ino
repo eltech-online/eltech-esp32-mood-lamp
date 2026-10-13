@@ -1,7 +1,5 @@
 // ElTech-Online ESP32 Mood Lamp — LED ring test
 //
-// BETA: this sketch compiles but has not been fully tested on hardware yet.
-//
 // The smallest possible sketch for the WS2812B LED ring: one LED at a time
 // lights up, going round the ring and changing colour as it goes. No knob, no
 // remote, no WiFi. Use it to check the ring is wired correctly before building
