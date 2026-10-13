@@ -172,7 +172,7 @@ Open `mood_lamp/mood_lamp.ino` alongside this section. The file starts with a sh
 
 1. **Settings at the top.** Pin numbers and `MAX_BRIGHTNESS` are named values you can change in one place.
 2. **Lamp state.** Five variables (`lampOn`, `hue`, `saturation`, `brightPct`, `effect`) describe everything the lamp shows.
-3. **Drawing the ring.** `drawRing()` runs 50 times a second and works out each LED's colour for that moment. Nothing changes on the LEDs until `ring.show()`.
+3. **Drawing the ring.** `drawRing()` runs 200 times a second and works out each LED's colour for that moment. Nothing changes on the LEDs until `ring.show()`.
 4. **The knob.** `knobTurned()` is the interrupt: it only counts. `handleKnob()` in `loop()` uses the count and tells a short press from a long one.
 5. **The remote.** `irFell()` is the interrupt that measures the gaps and builds the 32-bit code. `handleRemote()` compares it with the learned buttons.
 6. **The web server.** `/state` sends the lamp's state as JSON, `/set` changes it, `/learn` starts remote learning. The page (`page_template.h`) asks for `/state` once a second.

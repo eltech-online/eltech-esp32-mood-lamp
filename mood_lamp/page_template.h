@@ -23,7 +23,7 @@ const char PAGE_TEMPLATE[] PROGMEM = R"HTML(
     <div class="row"><span class="name">Colour</span></div>
     <input type="color" id="color" onchange="set('color=' + encodeURIComponent(this.value))">
     <div class="row"><span class="name">Brightness</span><span id="brightText">--</span></div>
-    <input type="range" id="bright" min="2" max="100" onchange="set('bright=' + this.value)">
+    <input type="range" id="bright" min="3" max="100" onchange="set('bright=' + this.value)">
     <div class="row"><span class="name">Effect</span></div>
     <div class="buttons" id="effects"></div>
   </div>

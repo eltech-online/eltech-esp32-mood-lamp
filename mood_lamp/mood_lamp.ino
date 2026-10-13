@@ -132,26 +132,33 @@ void loadState() {
 // LED ring
 // ---------------------------------------------------------------------------
 
-// Dims a colour to the lamp's brightness. A colour is three numbers, 0-255:
-// how much red, green and blue. Dimming multiplies all three by the same
-// fraction, but an LED can't show "half a step": at the lowest brightness a
-// small number would round down to 0 and drop out, so purple (a lot of red,
-// less blue) would turn plain red. To keep the colour, any part that is a real
-// share of it (at least an eighth of the strongest part) stays lit at 1.
-uint32_t dimmed(uint32_t colour) {
-  int level = map(brightPct, 0, 100, 0, MAX_BRIGHTNESS);
+// Works out what one LED shows: a colour, dimmed to the lamp's brightness and
+// then faded by "amount" (0-255, 255 = not faded; Breathe and Candle use it).
+//
+// A colour is three numbers, 0-255: how much red, green and blue. Dimming
+// multiplies all three by the same fraction, but an LED can't show "half a
+// step". At the lowest brightness orange should be red 3, green 0.4. Rounded,
+// that is either green 0 (plain red) or green 1 (yellow): the wrong colour
+// both ways. So the lamp shares the leftover out over time: the ring is
+// redrawn 200 times a second, and with half a step left over, every LED shows
+// green 1 on two redraws out of four and green 0 on the others. That is far
+// too fast to see, so the eye gets the right colour, and all the LEDs always
+// match each other. Higher up, one step more or less can't be seen.
+const int SHARE[4] = { 0, 2, 1, 3 };   // which redraws join in first; this order flickers least
+int redraw = 0;                        // counts redraws: 0, 1, 2, 3, 0, 1, ...
+
+uint32_t ledColour(uint32_t colour, uint8_t amount) {
+  long level = map(brightPct, 0, 100, 0, MAX_BRIGHTNESS);
   int part[3] = { (int)((colour >> 16) & 255), (int)((colour >> 8) & 255), (int)(colour & 255) };
-  int strongest = max(part[0], max(part[1], part[2]));
   for (int i = 0; i < 3; i++) {
-    int v = (part[i] * level + 127) / 255;            // + 127 rounds to nearest
-    if (v == 0 && part[i] > 0 && part[i] * 8 >= strongest) v = 1;
-    part[i] = v;
+    long quarters = part[i] * level * amount * 4 / (255L * 255L);   // the exact level, in quarters of a step
+    part[i] = (quarters + SHARE[redraw]) / 4;
   }
   return ring.Color(part[0], part[1], part[2]);
 }
 
 // Works out the colour of every LED for this moment and sends it to the ring.
-// Called about 50 times a second from loop(), which is what makes the moving
+// Called 200 times a second from loop(), which is what makes the moving
 // effects look smooth.
 void drawRing() {
   if (!lampOn) {
@@ -160,35 +167,41 @@ void drawRing() {
     return;
   }
   unsigned long now = millis();
+  redraw = (redraw + 1) % 4;
 
   if (effect == 0) {
     // Solid: every LED the chosen colour.
-    ring.fill(dimmed(ring.gamma32(ring.ColorHSV(hue, saturation, 255))));
+    uint32_t colour = ring.gamma32(ring.ColorHSV(hue, saturation, 255));
+    ring.fill(ledColour(colour, 255));
 
   } else if (effect == 1) {
     // Rainbow: each LED a step further round the colour wheel, and the whole
     // wheel slowly turns. now * 10 goes once round (65536) in about 6.5 s.
     for (int i = 0; i < NUM_LEDS; i++) {
       uint16_t h = (uint16_t)(now * 10) + i * (65536 / NUM_LEDS);
-      ring.setPixelColor(i, dimmed(ring.gamma32(ring.ColorHSV(h, 255, 255))));
+      ring.setPixelColor(i, ledColour(ring.gamma32(ring.ColorHSV(h, 255, 255)), 255));
     }
 
   } else if (effect == 2) {
     // Breathe: the chosen colour fades up and down like slow breathing.
     // sin() gives a smooth wave from -1 to +1; we move it to 0.1 - 1.0.
     float wave = (sin(now / 4000.0 * 2 * PI) + 1.0) / 2.0;
+    // gamma8 bends the wave so the fade looks even to the eye.
     uint8_t level = 25 + wave * 230;
-    ring.fill(dimmed(ring.gamma32(ring.ColorHSV(hue, saturation, level))));
+    uint32_t colour = ring.gamma32(ring.ColorHSV(hue, saturation, 255));
+    ring.fill(ledColour(colour, ring.gamma8(level)));
 
   } else {
-    // Candle: warm orange, each LED flickering by a random amount. Only
-    // changed every 80 ms, or it would look like noise instead of a flame.
+    // Candle: the chosen colour (orange looks most like a flame), each LED
+    // flickering by a random amount. Only changed every 80 ms, or it would
+    // look like noise instead of a flame.
     static unsigned long lastFlicker = 0;
     if (now - lastFlicker < 80) return;
     lastFlicker = now;
+    uint32_t colour = ring.gamma32(ring.ColorHSV(hue, saturation, 255));
     for (int i = 0; i < NUM_LEDS; i++) {
       uint8_t level = random(90, 256);
-      ring.setPixelColor(i, dimmed(ring.gamma32(ring.ColorHSV(4000 + random(0, 1500), 255, level))));
+      ring.setPixelColor(i, ledColour(colour, ring.gamma8(level)));
     }
   }
   ring.show();   // nothing changes on the LEDs until this line
@@ -201,7 +214,7 @@ void drawRing() {
 void togglePower()        { lampOn = !lampOn; stateChanged(); }
 void nextEffect()         { effect = (effect + 1) % EFFECT_COUNT; lampOn = true; stateChanged(); }
 void changeBrightness(int steps) {
-  brightPct = constrain(brightPct + steps, 2, 100);   // never fully dark: use on/off for that
+  brightPct = constrain(brightPct + steps, 3, 100);   // never fully dark: use on/off for that
   stateChanged();
 }
 void changeHue(int steps) {
@@ -488,7 +501,7 @@ void setColourFromHex(String hex) {
 // /set?bright=60 or /set?color=%23ff8800.
 void handleSet() {
   if (server.hasArg("on"))     lampOn = server.arg("on") == "1";
-  if (server.hasArg("bright")) brightPct = constrain(server.arg("bright").toInt(), 2, 100);
+  if (server.hasArg("bright")) brightPct = constrain(server.arg("bright").toInt(), 3, 100);
   if (server.hasArg("effect")) effect = constrain(server.arg("effect").toInt(), 0, EFFECT_COUNT - 1);
   if (server.hasArg("color"))  { setColourFromHex(server.arg("color")); effect = 0; }
   stateChanged();
@@ -543,7 +556,7 @@ void setup() {
     ring.show();
     delay(500);
   }
-  ring.setBrightness(255);   // from here on dimmed() sets the brightness itself
+  ring.setBrightness(255);   // from here on ledColour() sets the brightness itself
 
   wifiOK = startAccessPoint();
 
@@ -573,12 +586,12 @@ void loop() {
   handleKnob();
   handleRemote();
 
-  // Redraw the ring every 20 ms (50 times a second) WITHOUT stopping
+  // Redraw the ring every 5 ms (200 times a second) WITHOUT stopping
   // everything else. millis() is the number of milliseconds since the board
-  // started; we note when we last drew and only draw again once 20 ms have
+  // started; we note when we last drew and only draw again once 5 ms have
   // gone by. ("static" makes lastDraw keep its value between runs of loop().)
   static unsigned long lastDraw = 0;
-  if (millis() - lastDraw >= 20) {
+  if (millis() - lastDraw >= 5) {
     lastDraw = millis();
     drawRing();
   }
